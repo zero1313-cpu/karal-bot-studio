@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <exclude domain="database" path="karal.db" />
+    <exclude domain="database" path="karal.db-wal" />
+    <exclude domain="database" path="karal.db-shm" />
+    <exclude domain="sharedpref" path="secret_prefs.xml" />
+</full-backup-content>
