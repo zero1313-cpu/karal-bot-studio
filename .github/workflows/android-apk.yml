@@ -10,7 +10,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      KARAL_UPLOAD_KEYSTORE: ${{ runner.temp }}/karal-release.jks
+      KARAL_UPLOAD_KEYSTORE: ${{ github.workspace }}/karal-release.jks
       KARAL_UPLOAD_KEYSTORE_BASE64: ${{ secrets.KARAL_UPLOAD_KEYSTORE_BASE64 }}
       KARAL_UPLOAD_STORE_PASSWORD: ${{ secrets.KARAL_UPLOAD_STORE_PASSWORD }}
       KARAL_UPLOAD_KEY_ALIAS: ${{ secrets.KARAL_UPLOAD_KEY_ALIAS }}
