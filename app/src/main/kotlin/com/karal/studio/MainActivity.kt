@@ -22,6 +22,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -65,13 +66,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             val vm: KaralViewModel = viewModel()
             val nav = rememberNavController()
-            var localeTag by rememberSaveable { mutableStateOf("hi") }
-            var theme by remember { mutableStateOf(SettingsKeys.THEME_SYSTEM) }
-            LaunchedEffect(vm) {
-                val rows = vm.settings.first()
-                theme = rows.firstOrNull { it.key == SettingsKeys.THEME }?.value ?: SettingsKeys.THEME_SYSTEM
-                localeTag = rows.firstOrNull { it.key == SettingsKeys.LANGUAGE }?.value ?: SettingsKeys.LANGUAGE_HI
-            }
+            val settingsRows by vm.settings.collectAsState(initial = emptyList())
+            val theme = settingsRows.firstOrNull { it.key == SettingsKeys.THEME }?.value ?: SettingsKeys.THEME_SYSTEM
+            val localeTag = settingsRows.firstOrNull { it.key == SettingsKeys.LANGUAGE }?.value ?: SettingsKeys.LANGUAGE_HI
             val dark = theme == SettingsKeys.THEME_DARK ||
                 (theme == SettingsKeys.THEME_SYSTEM && androidx.compose.foundation.isSystemInDarkTheme())
 
@@ -114,7 +111,7 @@ class MainActivity : ComponentActivity() {
                         composable("projects") { ProjectsScreen(vm, nav) }
                         composable("studio") { StudioScreen(vm, nav) }
                         composable("hosting") { HostingScreen(vm, nav) }
-                        composable("settings") { SettingsScreen(vm, nav, theme, localeTag) { localeTag = it } }
+                        composable("settings") { SettingsScreen(vm, nav, theme, localeTag) { } }
                         composable("project/new") { NewProjectScreen(vm, nav) }
                         composable("project/{projectId}") { back ->
                             ProjectDetailScreen(vm, nav, back.arguments?.getString("projectId").orEmpty())

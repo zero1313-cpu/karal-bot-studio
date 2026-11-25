@@ -83,15 +83,14 @@ fun InfoCard(text: String, modifier: Modifier = Modifier) {
 
 @Composable
 fun StatusChip(label: String, color: androidx.compose.ui.graphics.Color, modifier: Modifier = Modifier) {
-    AssistChip(
+    androidx.compose.material3.Surface(
         modifier = modifier,
-        onClick = {},
-        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
-        colors = AssistChipDefaults.assistChipColors(
-            containerColor = color.copy(alpha = 0.18f),
-            labelColor = color
-        )
-    )
+        color = color.copy(alpha = 0.18f),
+        contentColor = color,
+        shape = MaterialTheme.shapes.small
+    ) {
+        Text(label, Modifier.padding(horizontal = 10.dp, vertical = 6.dp), style = MaterialTheme.typography.labelSmall)
+    }
 }
 
 @Composable

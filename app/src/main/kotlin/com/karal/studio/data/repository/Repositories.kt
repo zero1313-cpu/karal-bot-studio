@@ -64,7 +64,7 @@ class ProjectRepository(private val db: KaralDatabase) {
         require(name.isNotBlank()) { "Project name is required." }
         val now = System.currentTimeMillis()
         val project = ProjectEntity(newId(), name.trim(), description.trim(), botName.trim(), botId.trim(), applicationId.trim(), now, now)
-        val bot = BotEntity(newId(), project.id, botName.ifBlank { name }, prefix = prefix)
+        val bot = BotEntity(newId(), project.id, botName.ifBlank { name }, tokenAlias = "bot_token_${newId()}", prefix = prefix)
         projects.upsert(project)
         bots.upsert(bot)
         return project
@@ -83,7 +83,7 @@ class ProjectRepository(private val db: KaralDatabase) {
         val copy = source.copy(id = newId(), name = "${source.name} (copy)", createdAt = System.currentTimeMillis(), modifiedAt = System.currentTimeMillis())
         projects.upsert(copy)
         db.botDao().getAllForProject(id).forEach { bot ->
-            bots.upsert(bot.copy(id = newId(), projectId = copy.id, enabled = false))
+            bots.upsert(bot.copy(id = newId(), projectId = copy.id, enabled = false, tokenAlias = "bot_token_${newId()}"))
         }
         db.commandDao().getAllForProject(id).forEach { command ->
             val newCommandId = newId()
@@ -299,9 +299,20 @@ class BotRepository(private val db: KaralDatabase, private val secrets: SecretMa
         return bot
     }
 
+    private suspend fun ensureTokenAlias(bot: BotEntity): BotEntity {
+        if (bot.tokenAlias.isNotBlank()) return bot
+        val fixed = bot.copy(tokenAlias = "bot_token_${newId()}")
+        dao.upsert(fixed)
+        return fixed
+    }
+
     suspend fun saveToken(botId: String, token: String) {
-        val bot = dao.get(botId) ?: return
-        secrets.store(bot.tokenAlias, token.trim(), "DISCORD_BOT_TOKEN")
+        val raw = token.trim()
+        require(raw.isNotBlank()) { "Bot token is required." }
+        require(SecretPolicy.isPlausibleDiscordBotToken(raw)) { "That does not look like a valid Discord bot token." }
+        val bot = dao.get(botId) ?: throw IllegalStateException("Bot configuration not found.")
+        val withAlias = ensureTokenAlias(bot)
+        secrets.store(withAlias.tokenAlias, raw, "DISCORD_BOT_TOKEN")
     }
 
     suspend fun token(botId: String): String? {
@@ -384,10 +395,51 @@ class BackupRepository(private val db: KaralDatabase, private val context: Conte
         } ?: throw IllegalStateException("Cannot open export destination.")
     }
 
+    suspend fun exportJson(uri: Uri, projectId: String): Result<Unit> = runCatching {
+        val bundle = ProjectRepository(db).exportBundle(projectId)
+            ?: throw IllegalArgumentException("Project not found.")
+        context.contentResolver.openOutputStream(uri)?.use { out ->
+            out.write(bundle.toJson().toByteArray(Charsets.UTF_8))
+        } ?: throw IllegalStateException("Cannot open export destination.")
+    }
+
     suspend fun importJson(uri: Uri): Result<String> = runCatching {
-        val text = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+        val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
             ?: throw IllegalStateException("Cannot read import file.")
+        val text = if (bytes.size >= 2 && bytes[0] == 0x50.toByte() && bytes[1] == 0x4B.toByte()) {
+            java.util.zip.ZipInputStream(bytes.inputStream()).use { zip ->
+                var entry = zip.nextEntry
+                var projectJson: String? = null
+                while (entry != null) {
+                    if (!entry.isDirectory && entry.name.endsWith("project.json")) {
+                        projectJson = zip.readBytes().toString(Charsets.UTF_8)
+                        break
+                    }
+                    entry = zip.nextEntry
+                }
+                projectJson ?: throw IllegalStateException("project.json not found in ZIP archive.")
+            }
+        } else {
+            bytes.toString(Charsets.UTF_8)
+        }
         ProjectRepository(db).importBundle(text).getOrThrow()
+    }
+
+    suspend fun delete(backupId: String): Result<Unit> = runCatching {
+        val backup = backups.get(backupId) ?: throw IllegalArgumentException("Backup not found.")
+        runCatching { java.io.File(backup.path).delete() }
+        backups.delete(backupId)
+    }
+
+    suspend fun verify(backupId: String): Result<Boolean> = runCatching {
+        val backup = backups.get(backupId) ?: throw IllegalArgumentException("Backup not found.")
+        val file = java.io.File(backup.path)
+        if (!file.exists()) throw IllegalStateException("Backup file is missing.")
+        val bytes = file.readBytes()
+        val checksum = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+        val ok = checksum == backup.checksum
+        backups.upsert(backup.copy(validated = ok))
+        ok
     }
 }
 

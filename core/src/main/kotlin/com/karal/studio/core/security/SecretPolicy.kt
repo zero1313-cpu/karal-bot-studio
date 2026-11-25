@@ -6,7 +6,7 @@ package com.karal.studio.core.security
  * This is not a substitute for OS-level isolation.
  */
 object SecretPolicy {
-    private val discordToken = Regex("""MT[A-Za-z0-9_-]{23,28}\.[A-Za-z0-9_-]{6,7}\.[A-Za-z0-9_-]{27,}""")
+    private val discordToken = Regex("""[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{20,}""")
     private val googleKey = Regex("""AIza[0-9A-Za-z_-]{30,}""")
     private val openAiKey = Regex("""sk-[A-Za-z0-9_-]{20,}""")
     private val groqKey = Regex("""gsk_[A-Za-z0-9]{20,}""")
@@ -21,6 +21,21 @@ object SecretPolicy {
     const val REDACTED = "[REDACTED]"
 
     fun containsSecret(text: String): Boolean = patterns.any { it.containsMatchIn(text) }
+
+    /**
+     * Permissive Discord bot token check. Discord token formats have changed over time, so we
+     * accept plausible three-segment tokens and avoid relying on one hardcoded prefix/length shape.
+     */
+    fun isPlausibleDiscordBotToken(token: String): Boolean {
+        val t = token.trim()
+        if (t.isEmpty() || t.length < 30 || t.length > 256) return false
+        if (t.any { it.isWhitespace() }) return false
+        val parts = t.split('.')
+        if (parts.size != 3) return false
+        if (parts.any { it.isEmpty() }) return false
+        val allowed = Regex("""^[A-Za-z0-9_-]+$""")
+        return parts.all { allowed.matches(it) }
+    }
 
     fun redact(text: String): String {
         var result = text

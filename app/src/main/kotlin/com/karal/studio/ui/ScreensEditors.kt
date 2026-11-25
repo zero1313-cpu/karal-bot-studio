@@ -102,9 +102,9 @@ fun ProjectDetailScreen(vm: KaralViewModel, nav: NavController, projectId: Strin
     var botId by remember { mutableStateOf("") }
     var appId by remember { mutableStateOf("") }
     var archived by remember { mutableStateOf(false) }
-    var token by remember { mutableStateOf("") }
     var message by remember { mutableStateOf("") }
     var confirmDelete by remember { mutableStateOf(false) }
+    var confirmDeleteBot by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
 
     androidx.compose.runtime.LaunchedEffect(project) {
@@ -116,6 +116,11 @@ fun ProjectDetailScreen(vm: KaralViewModel, nav: NavController, projectId: Strin
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         if (uri != null) vm.exportProject(uri, projectId) { result ->
             message = result.fold({ "Exported successfully" }, { it.message ?: "Export failed" })
+        }
+    }
+    val exportJsonLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) vm.exportProjectJson(uri, projectId) { result ->
+            message = result.fold({ "JSON exported successfully" }, { it.message ?: "Export failed" })
         }
     }
 
@@ -142,6 +147,8 @@ fun ProjectDetailScreen(vm: KaralViewModel, nav: NavController, projectId: Strin
         }
         item { SectionTitle("Bots and credentials") }
         items(bots, key = { it.id }) { bot ->
+            var botToken by remember(bot.id) { mutableStateOf("") }
+            var savingToken by remember(bot.id) { mutableStateOf(false) }
             Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(bot.name, style = MaterialTheme.typography.titleMedium)
@@ -149,18 +156,28 @@ fun ProjectDetailScreen(vm: KaralViewModel, nav: NavController, projectId: Strin
                     var hasToken by remember(bot.id) { mutableStateOf(false) }
                     LaunchedEffect(bot.id) { vm.hasToken(bot.id) { hasToken = it } }
                     Text(if (hasToken) "Token stored securely" else "No token stored", color = if (hasToken) Green else Amber, style = MaterialTheme.typography.bodySmall)
-                    Field(token, { token = it }, stringResource(R.string.token), visualTransformation = PasswordVisualTransformation())
-                    Button(onClick = {
-                        vm.saveToken(bot.id, token) { result ->
-                            message = result.fold({ "Token saved to Keystore" }, { it.message ?: "Token rejected" })
-                            if (result.isSuccess) token = ""
-                        }
-                    }) { Text("Save token") }
+                    Field(botToken, { botToken = it }, stringResource(R.string.token), visualTransformation = PasswordVisualTransformation())
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = {
+                            savingToken = true
+                            vm.saveToken(bot.id, botToken) { result ->
+                                savingToken = false
+                                message = result.fold({ "Token saved to Keystore" }, { it.message ?: "Token rejected" })
+                                if (result.isSuccess) {
+                                    botToken = ""
+                                    vm.hasToken(bot.id) { hasToken = it }
+                                }
+                            }
+                        }, enabled = !savingToken) { Text(if (savingToken) "Saving..." else "Save token") }
+                        TextButton(onClick = { confirmDeleteBot = bot.id }) { Text(stringResource(R.string.delete)) }
+                    }
                 }
             }
         }
         item {
-            OutlinedButton(onClick = { vm.createBot(projectId, "Bot ${bots.size + 1}", "!") {} }) { Text(stringResource(R.string.new_bot)) }
+            OutlinedButton(onClick = { vm.createBot(projectId, "Bot ${bots.size + 1}", "!") { r ->
+                message = r.fold({ "Bot created" }, { it.message ?: "Failed to create bot" })
+            } }) { Text(stringResource(R.string.new_bot)) }
         }
         item { SectionTitle(stringResource(R.string.nav_studio)) }
         items(commands, key = { it.id }) { command ->
@@ -184,6 +201,7 @@ fun ProjectDetailScreen(vm: KaralViewModel, nav: NavController, projectId: Strin
                     message = result.fold({ "Backup created" }, { it.message ?: "Backup failed" })
                 } }) { Text(stringResource(R.string.backup)) }
                 OutlinedButton(onClick = { exportLauncher.launch("karal-${project?.name ?: "project"}.zip") }) { Text(stringResource(R.string.export)) }
+                OutlinedButton(onClick = { exportJsonLauncher.launch("karal-${project?.name ?: "project"}.json") }) { Text("Export JSON") }
             }
         }
         item { SectionTitle(stringResource(R.string.backup)) }
@@ -197,6 +215,13 @@ fun ProjectDetailScreen(vm: KaralViewModel, nav: NavController, projectId: Strin
     }
     if (confirmDelete) ConfirmDialog(stringResource(R.string.delete), "Delete this project and all local data?", stringResource(R.string.delete),
         onConfirm = { vm.deleteProject(projectId); nav.popBackStack() }, onDismiss = { confirmDelete = false })
+    confirmDeleteBot?.let { id ->
+        ConfirmDialog(stringResource(R.string.delete), "Delete this bot and its stored token?", stringResource(R.string.delete),
+            onConfirm = {
+                vm.deleteBot(id) { r -> message = r.fold({ "Bot deleted" }, { it.message ?: "Delete failed" }) }
+                confirmDeleteBot = null
+            }, onDismiss = { confirmDeleteBot = null })
+    }
 }
 
 @Composable
@@ -364,6 +389,19 @@ fun VisualEditorScreen(vm: KaralViewModel, nav: NavController, commandId: String
                     ))
                     selected = null
                 }) { Text(stringResource(R.string.delete)) }
+            }
+        }
+        if (current.workflow.edges.isNotEmpty()) {
+            SectionTitle("Edges")
+            current.workflow.edges.forEach { edge ->
+                val from = current.workflow.nodes.firstOrNull { it.id == edge.from }?.label ?: edge.from.take(8)
+                val to = current.workflow.nodes.firstOrNull { it.id == edge.to }?.label ?: edge.to.take(8)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("$from -> $to", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                    TextButton(onClick = {
+                        definition = current.copy(workflow = current.workflow.copy(edges = current.workflow.edges.filterNot { it.id == edge.id }))
+                    }) { Text(stringResource(R.string.delete)) }
+                }
             }
         }
         if (result.isNotBlank()) Text(result, color = if (result.startsWith("Valid")) Green else Red)
@@ -537,27 +575,49 @@ fun BackupsScreen(vm: KaralViewModel, nav: NavController) {
     val backups by vm.backups.collectAsState(initial = emptyList())
     val projects by vm.projects.collectAsState(initial = emptyList())
     var status by remember { mutableStateOf("") }
-    var confirm by remember { mutableStateOf<String?>(null) }
+    var confirmRestore by remember { mutableStateOf<String?>(null) }
+    var confirmDelete by remember { mutableStateOf<String?>(null) }
+    var selectedProject by remember { mutableStateOf("") }
     LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
             Text(stringResource(R.string.backup), style = MaterialTheme.typography.headlineMedium)
             InfoCard(stringResource(R.string.uninstall_note))
             if (status.isNotBlank()) Text(status)
+            SectionTitle("Create backup")
+            Text("Project: ${projects.firstOrNull { it.id == selectedProject }?.name ?: "Select a project"}", style = MaterialTheme.typography.bodySmall)
+            Row(Modifier.horizontalScroll(rememberScrollState())) {
+                projects.forEach { project ->
+                    FilterChip(selected = selectedProject == project.id, onClick = { selectedProject = project.id }, label = { Text(project.name) })
+                }
+            }
+            Button(onClick = {
+                if (selectedProject.isBlank()) status = "Select a project first"
+                else vm.createBackup(selectedProject) { r -> status = r.fold({ "Backup created" }, { it.message ?: "Backup failed" }) }
+            }) { Text("Create backup") }
         }
         items(backups, key = { it.id }) { backup ->
             Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-                Column(Modifier.padding(12.dp)) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(projects.firstOrNull { it.id == backup.projectId }?.name ?: backup.projectId)
-                    Text("${backup.sizeBytes} bytes • verified=${backup.validated}", style = MaterialTheme.typography.bodySmall)
-                    TextButton(onClick = { confirm = backup.id }) { Text(stringResource(R.string.restore)) }
+                    Text("${backup.sizeBytes} bytes • verified=${backup.validated} • checksum=${backup.checksum.take(12)}", style = MaterialTheme.typography.bodySmall)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = { vm.verifyBackup(backup.id) { r -> status = r.fold({ ok -> if (ok) "Backup integrity verified" else "Backup integrity check failed" }, { it.message ?: "Verify failed" }) } }) { Text("Verify") }
+                        TextButton(onClick = { confirmRestore = backup.id }) { Text(stringResource(R.string.restore)) }
+                        TextButton(onClick = { confirmDelete = backup.id }) { Text(stringResource(R.string.delete)) }
+                    }
                 }
             }
         }
     }
-    confirm?.let { id ->
+    confirmRestore?.let { id ->
         ConfirmDialog(stringResource(R.string.restore), "Restore this backup as a new project?", stringResource(R.string.restore),
-            onConfirm = { vm.restoreBackup(id) { r -> status = r.fold({ "Restored as a new project" }, { it.message ?: "Restore failed" }) }; confirm = null },
-            onDismiss = { confirm = null })
+            onConfirm = { vm.restoreBackup(id) { r -> status = r.fold({ "Restored as a new project" }, { it.message ?: "Restore failed" }) }; confirmRestore = null },
+            onDismiss = { confirmRestore = null })
+    }
+    confirmDelete?.let { id ->
+        ConfirmDialog(stringResource(R.string.delete), "Delete this backup file permanently?", stringResource(R.string.delete),
+            onConfirm = { vm.deleteBackup(id) { r -> status = r.fold({ "Backup deleted" }, { it.message ?: "Delete failed" }) }; confirmDelete = null },
+            onDismiss = { confirmDelete = null })
     }
 }
 

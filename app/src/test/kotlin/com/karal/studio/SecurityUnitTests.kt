@@ -2,7 +2,6 @@ package com.karal.studio
 
 import com.karal.studio.core.compiler.CommandCompiler
 import com.karal.studio.core.compiler.CompileException
-import com.karal.studio.core.model.CommandDefinition
 import com.karal.studio.core.model.CoreJson
 import com.karal.studio.core.security.SecretPolicy
 import org.junit.Assert.assertFalse
@@ -38,5 +37,20 @@ class SecurityUnitTests {
         )
         val error = runCatching { CommandCompiler.compile(command) }.exceptionOrNull()
         assertTrue(error is CompileException && error.issues.any { it.code == "UNAPPROVED_CODE" })
+    }
+
+    @Test
+    fun acceptsPlausibleDiscordTokens() {
+        assertTrue(SecretPolicy.isPlausibleDiscordBotToken(realisticToken))
+        val secondToken = "OD${"8".repeat(24)}.${"G".repeat(6)}.${"a".repeat(30)}"
+        assertTrue(SecretPolicy.isPlausibleDiscordBotToken(secondToken))
+    }
+
+    @Test
+    fun rejectsMalformedDiscordTokens() {
+        assertFalse(SecretPolicy.isPlausibleDiscordBotToken(""))
+        assertFalse(SecretPolicy.isPlausibleDiscordBotToken("not-a-token"))
+        assertFalse(SecretPolicy.isPlausibleDiscordBotToken("abc.def"))
+        assertFalse(SecretPolicy.isPlausibleDiscordBotToken("abc def ghi"))
     }
 }

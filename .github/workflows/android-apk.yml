@@ -35,17 +35,20 @@ jobs:
       - name: Grant Gradle permission
         run: chmod +x ./gradlew
 
-      - name: Build Debug APK
-        run: ./gradlew --no-daemon --stacktrace :app:assembleDebug
+      - name: Clean
+        run: ./gradlew --no-daemon clean
 
       - name: Run Core Tests
-        run: ./gradlew --no-daemon :core:test
+        run: ./gradlew --no-daemon --stacktrace :core:test
 
       - name: Run Android Unit Tests
-        run: ./gradlew --no-daemon :app:testDebugUnitTest
+        run: ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest
 
       - name: Run Lint
-        run: ./gradlew --no-daemon :app:lintDebug
+        run: ./gradlew --no-daemon --stacktrace :app:lintDebug
+
+      - name: Build Debug APK
+        run: ./gradlew --no-daemon --stacktrace :app:assembleDebug
 
       - name: Upload Debug APK
         if: always()
@@ -62,7 +65,9 @@ jobs:
         with:
           name: karal-build-reports
           path: |
-            app/build/reports/tests/**
-            app/build/reports/lint-results-debug.*
+            app/build/reports/**
+            app/build/test-results/**
+            core/build/reports/**
+            core/build/test-results/**
           if-no-files-found: ignore
           retention-days: 14

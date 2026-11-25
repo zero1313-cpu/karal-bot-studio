@@ -107,12 +107,14 @@ fun ProjectsScreen(vm: KaralViewModel, nav: NavController) {
     val all by vm.projects.collectAsState(initial = emptyList())
     var query by remember { mutableStateOf("") }
     var confirmDelete by remember { mutableStateOf<String?>(null) }
+    var status by remember { mutableStateOf("") }
     val filtered = all.filter {
         it.name.contains(query, true) || it.description.contains(query, true)
     }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) vm.importProject(uri) { result ->
             result.onSuccess { nav.navigate("project/$it") }
+                .onFailure { status = it.message ?: "Import failed" }
         }
     }
 
@@ -123,6 +125,7 @@ fun ProjectsScreen(vm: KaralViewModel, nav: NavController) {
                 label = { Text(stringResource(R.string.search)) }, modifier = Modifier.fillMaxWidth(), singleLine = true
             )
         }
+        if (status.isNotBlank()) item { InfoCard(status) }
         item { InfoCard(stringResource(R.string.uninstall_note)) }
         if (filtered.isEmpty()) item { EmptyCard(stringResource(R.string.no_data)) }
         items(filtered, key = { it.id }) { project ->
@@ -135,6 +138,7 @@ fun ProjectsScreen(vm: KaralViewModel, nav: NavController) {
                         Button(onClick = { nav.navigate("project/${project.id}") }) { Text("Open") }
                         OutlinedButton(onClick = { vm.duplicateProject(project.id) { result ->
                             result.onSuccess { nav.navigate("project/$it") }
+                                .onFailure { status = it.message ?: "Duplicate failed" }
                         } }) { Text(stringResource(R.string.duplicate)) }
                         OutlinedButton(onClick = {
                             vm.setArchived(project.id, !project.archived)
@@ -287,7 +291,7 @@ fun SettingsScreen(
             SectionTitle(stringResource(R.string.theme))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf(SettingsKeys.THEME_SYSTEM to "System", SettingsKeys.THEME_DARK to "Dark", SettingsKeys.THEME_LIGHT to "Light").forEach { (key, label) ->
-                    if (key == theme) Button(onClick = {}) { Text(label) }
+                    if (key == theme) Button(onClick = { vm.putSetting(SettingsKeys.THEME, key) }) { Text(label) }
                     else OutlinedButton(onClick = { vm.putSetting(SettingsKeys.THEME, key) }) { Text(label) }
                 }
             }
@@ -295,9 +299,9 @@ fun SettingsScreen(
         item {
             SectionTitle(stringResource(R.string.language))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (localeTag == SettingsKeys.LANGUAGE_HI) Button(onClick = {}) { Text("हिन्दी") }
+                if (localeTag == SettingsKeys.LANGUAGE_HI) Button(onClick = { vm.putSetting(SettingsKeys.LANGUAGE, SettingsKeys.LANGUAGE_HI); onLocaleChange(SettingsKeys.LANGUAGE_HI) }) { Text("हिन्दी") }
                 else OutlinedButton(onClick = { vm.putSetting(SettingsKeys.LANGUAGE, SettingsKeys.LANGUAGE_HI); onLocaleChange(SettingsKeys.LANGUAGE_HI) }) { Text("हिन्दी") }
-                if (localeTag == SettingsKeys.LANGUAGE_EN) Button(onClick = {}) { Text("English") }
+                if (localeTag == SettingsKeys.LANGUAGE_EN) Button(onClick = { vm.putSetting(SettingsKeys.LANGUAGE, SettingsKeys.LANGUAGE_EN); onLocaleChange(SettingsKeys.LANGUAGE_EN) }) { Text("English") }
                 else OutlinedButton(onClick = { vm.putSetting(SettingsKeys.LANGUAGE, SettingsKeys.LANGUAGE_EN); onLocaleChange(SettingsKeys.LANGUAGE_EN) }) { Text("English") }
             }
         }
@@ -318,17 +322,32 @@ fun SettingsScreen(
             }
         }
         item {
+            var aiStatus by remember { mutableStateOf("") }
             SectionTitle("AI builder")
             Field(endpoint, { endpoint = it }, "OpenAI-compatible endpoint")
             Field(model, { model = it }, "Model")
             Field(aiKey, { aiKey = it }, "API key (leave blank to keep)", visualTransformation = PasswordVisualTransformation())
             Text(if (hasKey) "Key stored in Keystore" else "No key configured", style = MaterialTheme.typography.bodySmall)
+            if (aiStatus.isNotBlank()) Text(aiStatus, style = MaterialTheme.typography.bodySmall)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = {
                     vm.putSetting(SettingsKeys.AI_ENDPOINT, endpoint)
                     vm.putSetting(SettingsKeys.AI_MODEL, model)
-                    vm.setAiKey(aiKey) {}
+                    if (aiKey.isNotBlank()) {
+                        vm.setAiKey(aiKey) { r ->
+                            aiStatus = r.fold({ "AI settings saved" }, { it.message ?: "Failed to save AI key" })
+                            if (r.isSuccess) { aiKey = ""; vm.hasAiKey { hasKey = it } }
+                        }
+                    } else {
+                        aiStatus = "AI settings saved"
+                    }
                 }) { Text(stringResource(R.string.save)) }
+                OutlinedButton(onClick = {
+                    vm.clearAiKey { r ->
+                        aiStatus = r.fold({ "AI key cleared" }, { it.message ?: "Failed to clear key" })
+                        if (r.isSuccess) vm.hasAiKey { hasKey = it }
+                    }
+                }) { Text("Clear key") }
             }
         }
     }

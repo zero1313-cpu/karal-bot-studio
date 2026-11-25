@@ -76,7 +76,14 @@ class DiscordGateway(
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                if (!closed) scheduleReconnect()
+                if (closed) return
+                if (isFatalCloseCode(code)) {
+                    closed = true
+                    heartbeat?.cancel()
+                    onState("ERROR: Gateway closed ($code): ${SecretPolicy.redact(reason.ifBlank { "fatal gateway error" })}")
+                    return
+                }
+                scheduleReconnect()
             }
         })
     }
@@ -176,6 +183,15 @@ class DiscordGateway(
         socket = null
         onState("STOPPED")
     }
+
+    private fun isFatalCloseCode(code: Int): Boolean = code in setOf(
+        4004, // Authentication failed
+        4010, // Invalid shard
+        4011, // Sharding required
+        4012, // Invalid API version
+        4013, // Invalid intent(s)
+        4014  // Disallowed intent(s)
+    )
 
     fun latencyMillis(): Long = 0L // Gateway heartbeat ACK timing is tracked by the session monitor.
 }

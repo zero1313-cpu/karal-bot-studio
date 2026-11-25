@@ -76,7 +76,17 @@ class BotRuntimeManager(
     fun runningBotIds(): Set<String> = _snapshots.value.filter { isRunning(it.key) }.keys
 
     fun start(botId: String) {
-        if (sessions.containsKey(botId)) return
+        val existing = sessions[botId]
+        if (existing != null) {
+            if (existing.state in setOf(RuntimeState.ERROR, RuntimeState.STOPPED)) {
+                sessions.remove(botId)
+                existing.gateway?.disconnect()
+                existing.monitor?.cancel()
+                existing.scope.cancel()
+            } else {
+                return
+            }
+        }
         val session = RuntimeSession(
             CoroutineScope(SupervisorJob() + Dispatchers.IO),
             sessionId = UUID.randomUUID().toString(),
@@ -87,7 +97,12 @@ class BotRuntimeManager(
         session.scope.launch {
             runCatching { initialize(botId, session) }.onFailure { error ->
                 logs.log("ERROR", "Failed to start bot: ${error.message ?: "unknown error"}", botId)
+                session.gateway?.disconnect()
+                session.monitor?.cancel()
                 update(botId, session, RuntimeState.ERROR, error.message.orEmpty())
+                sessions.remove(botId)
+                delay(500L)
+                session.scope.cancel()
             }
         }
     }
@@ -197,11 +212,11 @@ class BotRuntimeManager(
     }
 
     private fun mapState(raw: String): RuntimeState = when {
-        raw.startsWith("READY") || raw == "CONNECTED" -> RuntimeState.READY
+        raw == "READY" || raw.startsWith("READY") -> RuntimeState.READY
+        raw == "CONNECTED" || raw == "IDENTIFYING" || raw == "RESUMING" -> RuntimeState.CONNECTING
         raw.startsWith("RECONNECTING") -> RuntimeState.RECONNECTING
         raw.startsWith("ERROR") -> RuntimeState.ERROR
         raw == "STOPPED" -> RuntimeState.STOPPED
-        raw == "RESUMING" -> RuntimeState.CONNECTING
         else -> RuntimeState.CONNECTING
     }
 

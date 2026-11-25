@@ -93,7 +93,7 @@ class KaralViewModel(application: Application) : AndroidViewModel(application) {
 
     fun saveToken(botId: String, token: String, onResult: (Result<Unit>) -> Unit) = viewModelScope.launch {
         onResult(runCatching {
-            require(SecretPolicy.containsSecret(token)) { "That does not look like a Discord bot token." }
+            require(SecretPolicy.isPlausibleDiscordBotToken(token)) { "That does not look like a valid Discord bot token." }
             c.bots.saveToken(botId, token)
             c.runtimeLogs.log("INFO", "Bot token stored in Android Keystore.", botId)
         })
@@ -106,6 +106,13 @@ class KaralViewModel(application: Application) : AndroidViewModel(application) {
     fun setBotEnabled(botId: String, enabled: Boolean) = viewModelScope.launch {
         c.bots.setEnabled(botId, enabled)
         if (!enabled) c.runtime.stop(botId)
+    }
+
+    fun deleteBot(botId: String, onResult: (Result<Unit>) -> Unit) = viewModelScope.launch {
+        onResult(runCatching {
+            c.runtime.stop(botId)
+            c.bots.delete(botId)
+        })
     }
 
     fun createCommand(projectId: String, name: String, source: CommandSource, onResult: (Result<String>) -> Unit) =
@@ -189,6 +196,10 @@ class KaralViewModel(application: Application) : AndroidViewModel(application) {
         onResult(c.backups.exportZip(uri, projectId))
     }
 
+    fun exportProjectJson(uri: Uri, projectId: String, onResult: (Result<Unit>) -> Unit) = viewModelScope.launch {
+        onResult(c.backups.exportJson(uri, projectId))
+    }
+
     fun importProject(uri: Uri, onResult: (Result<String>) -> Unit) = viewModelScope.launch {
         onResult(c.backups.importJson(uri))
     }
@@ -202,6 +213,14 @@ class KaralViewModel(application: Application) : AndroidViewModel(application) {
 
     fun restoreBackup(backupId: String, onResult: (Result<String>) -> Unit) = viewModelScope.launch {
         onResult(c.backups.restore(backupId))
+    }
+
+    fun deleteBackup(backupId: String, onResult: (Result<Unit>) -> Unit) = viewModelScope.launch {
+        onResult(c.backups.delete(backupId))
+    }
+
+    fun verifyBackup(backupId: String, onResult: (Result<Boolean>) -> Unit) = viewModelScope.launch {
+        onResult(c.backups.verify(backupId))
     }
 
     fun clearLogs() = viewModelScope.launch {
@@ -218,9 +237,13 @@ class KaralViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setAiKey(key: String, onResult: (Result<Unit>) -> Unit) = viewModelScope.launch {
         onResult(runCatching {
-            if (key.isBlank()) c.secrets.delete(SettingsKeys.AI_KEY_SECRET_ALIAS)
-            else c.secrets.store(SettingsKeys.AI_KEY_SECRET_ALIAS, key.trim(), "AI_PROVIDER_KEY")
+            if (key.isBlank()) return@runCatching
+            c.secrets.store(SettingsKeys.AI_KEY_SECRET_ALIAS, key.trim(), "AI_PROVIDER_KEY")
         })
+    }
+
+    fun clearAiKey(onResult: (Result<Unit>) -> Unit) = viewModelScope.launch {
+        onResult(runCatching { c.secrets.delete(SettingsKeys.AI_KEY_SECRET_ALIAS) })
     }
 
     fun hasAiKey(onResult: (Boolean) -> Unit) = viewModelScope.launch {
