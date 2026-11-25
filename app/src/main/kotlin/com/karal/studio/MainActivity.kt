@@ -67,6 +67,7 @@ class MainActivity : ComponentActivity() {
             val vm: KaralViewModel = viewModel()
             val nav = rememberNavController()
             val settingsRows by vm.settings.collectAsState(initial = emptyList())
+            val activeProjects by vm.activeProjects.collectAsState(initial = emptyList())
             val theme = settingsRows.firstOrNull { it.key == SettingsKeys.THEME }?.value ?: SettingsKeys.THEME_SYSTEM
             val localeTag = settingsRows.firstOrNull { it.key == SettingsKeys.LANGUAGE }?.value ?: SettingsKeys.LANGUAGE_HI
             val dark = theme == SettingsKeys.THEME_DARK ||
@@ -103,7 +104,7 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                     floatingActionButton = {
-                        if (showShell) CreateFab(nav)
+                        if (showShell) CreateFab(nav, activeProjects.firstOrNull()?.id.orEmpty())
                     }
                 ) { padding ->
                     NavHost(nav, startDestination = "home", Modifier.padding(padding)) {
@@ -159,7 +160,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun CreateFab(nav: androidx.navigation.NavController) {
+private fun CreateFab(nav: androidx.navigation.NavController, projectId: String) {
     var expanded by remember { mutableStateOf(false) }
     ExtendedFloatingActionButton(
         onClick = { expanded = true },
@@ -173,7 +174,11 @@ private fun CreateFab(nav: androidx.navigation.NavController) {
         )
         DropdownMenuItem(
             text = { Text(stringResource(R.string.new_command)) },
-            onClick = { expanded = false; nav.navigate("command/new?projectId=") }
+            onClick = {
+                expanded = false
+                if (projectId.isBlank()) nav.navigate("project/new")
+                else nav.navigate("command/new?projectId=$projectId")
+            }
         )
         DropdownMenuItem(
             text = { Text(stringResource(R.string.templates)) },
