@@ -2,19 +2,19 @@ name: Android APK
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build:
+    name: Build Android APK
     runs-on: ubuntu-latest
-    env:
-      KARAL_UPLOAD_KEYSTORE: ${{ github.workspace }}/karal-release.jks
-      KARAL_UPLOAD_KEYSTORE_BASE64: ${{ secrets.KARAL_UPLOAD_KEYSTORE_BASE64 }}
-      KARAL_UPLOAD_STORE_PASSWORD: ${{ secrets.KARAL_UPLOAD_STORE_PASSWORD }}
-      KARAL_UPLOAD_KEY_ALIAS: ${{ secrets.KARAL_UPLOAD_KEY_ALIAS }}
-      KARAL_UPLOAD_KEY_PASSWORD: ${{ secrets.KARAL_UPLOAD_KEY_PASSWORD }}
+    timeout-minutes: 45
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,60 +24,49 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Configure Android SDK
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME"
+          sdkmanager --version
+          yes | sdkmanager --licenses || true
 
       - name: Install Android SDK packages
-        run: sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+        run: |
+          sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Grant Gradle wrapper permission
+      - name: Grant Gradle permission
         run: chmod +x ./gradlew
 
-      - name: Cache Gradle
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'gradle/wrapper/gradle-wrapper.properties') }}
-          restore-keys: gradle-${{ runner.os }}-
+      - name: Build Debug APK
+        run: ./gradlew --no-daemon --stacktrace :app:assembleDebug
 
-      - name: Prepare release keystore (optional)
-        if: ${{ env.KARAL_UPLOAD_KEYSTORE_BASE64 != '' }}
-        run: |
-          echo "$KARAL_UPLOAD_KEYSTORE_BASE64" | base64 -d > "$KARAL_UPLOAD_KEYSTORE"
-          ls -l "$KARAL_UPLOAD_KEYSTORE"
+      - name: Run Core Tests
+        run: ./gradlew --no-daemon :core:test
 
-      - name: Build, test and lint
-        run: ./gradlew --no-daemon :core:test :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
+      - name: Run Android Tests
+        run: ./gradlew --no-daemon :app:testDebugUnitTest
 
-      - name: Build signed release (optional)
-        if: ${{ env.KARAL_UPLOAD_KEYSTORE_BASE64 != '' }}
-        run: ./gradlew --no-daemon :app:assembleRelease
+      - name: Run Lint
+        run: ./gradlew --no-daemon :app:lintDebug
 
-      - name: Upload debug APK
+      - name: Upload Debug APK
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: karal-debug-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: warn
+          retention-days: 14
 
-      - name: Upload signed release APK
-        if: ${{ env.KARAL_UPLOAD_KEYSTORE_BASE64 != '' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: karal-release-apk
-          path: app/build/outputs/apk/release/*.apk
-          if-no-files-found: warn
-
-      - name: Upload reports
+      - name: Upload Reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: karal-reports
+          name: karal-build-reports
           path: |
             app/build/reports/tests/**
             app/build/reports/lint-results-debug.*
-          if-no-files-found: warn
+          if-no-files-found: ignore
